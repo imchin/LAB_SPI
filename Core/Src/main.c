@@ -74,6 +74,24 @@ uint8_t Vlow=0;
 uint8_t Dutycycle=0;
 uint8_t stateform=0;
 uint8_t slope=0;
+uint8_t statetypewave=0;
+float adcconvert(uint8_t x);
+uint8_t sq=0;
+
+
+
+float Ton=0;
+float Toff=0;
+float T=0;
+uint32_t stampsq=0;
+
+float i=0;
+float debug=0;
+uint8_t usesin=0;
+
+uint8_t st=0;
+uint64_t k=0;
+
 
 /* USER CODE END PV */
 
@@ -145,22 +163,100 @@ int main(void)
   while (1)
   {
 
+
 	  	Posdata=huart2.RxXferSize - huart2.hdmarx->Instance->NDTR;
 	  	if(Posdatapre!=Posdata){
 	  			sprintf(TxDataBuffer, "\r\nReceivedChar:[%c]", RxDataBuffer[Posdatapre] );
 	  			HAL_UART_Transmit(&huart2, (uint8_t*)TxDataBuffer, strlen(TxDataBuffer),500);
 	  	}
+//
+//	  		if (micros() - timestamp >= 100){
+//	  			timestamp = micros();
+//	  			if (hspi3.State == HAL_SPI_STATE_READY && 	HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_10)== GPIO_PIN_SET){
+//	  				MCP4922SetOutput(DACConfig, floor(dataOut));
+//	  			}
+//	  		}
+	  	switch(statetypewave){
+			case 0:
+			break;
+			case 3:
+				T=(float)1/(float)(Freq*0.1);
+				Ton=(float)((float)Dutycycle*(1.00/(float)(Freq*0.1)))/100.00;
+				Toff=T-Ton;
+				switch(sq){
+					case 0:
+						if(micros() - stampsq >= Toff*1000000){
+							dataOut=adcconvert(Vhigh);
+							MCP4922SetOutput(DACConfig, dataOut);
+							stampsq=micros();
+							sq=1;
+						}
+					break;
+					case 1:
+						if(micros() - stampsq >= Ton*1000000){
+							dataOut=adcconvert(Vlow);
+							MCP4922SetOutput(DACConfig,dataOut);
+							stampsq=micros();
+							sq=0;
+						}
+					break;
+				}
 
-	  		if (micros() - timestamp >= 100){
-	  			timestamp = micros();
-	  			dataOut=dataOut+1;
-	  			dataOut=dataOut%4096;
+			break;
+			case 2:
+				T=(float)1/(float)(Freq*0.1);
+				if (micros() - timestamp >= (T/10000)*1000000){
+					timestamp = micros();
+					if (hspi3.State == HAL_SPI_STATE_READY && 	HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_10)== GPIO_PIN_SET){
+						i=i+(T/10000);
 
-	  			if (hspi3.State == HAL_SPI_STATE_READY && 	HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_10)== GPIO_PIN_SET){
-	  				MCP4922SetOutput(DACConfig, dataOut);
-	  			}
-	  		}
+						debug=(  (((float)Vhigh*0.1)/2.0)   *sin((float)2.00*3.141592653569793236*(float)(Freq*0.1)*i)  )+ (((float)Vhigh*0.1)/2.0) + ((float)Vlow*0.1);
+						debug=debug*10;
+						dataOut=adcconvert(debug);
+						MCP4922SetOutput(DACConfig, dataOut);
+					}
+				}
+			break;
+			case 1:
+				T=(float)1/(float)(Freq*0.1);
+				if(slope==0){
+					if (micros() - timestamp >= (T/1000)*1000000){
+						timestamp = micros();
+						k=k+1;
+						debug=((float)k/1000.00)*(float)Vhigh;
+						dataOut=adcconvert(debug);
+						if (hspi3.State == HAL_SPI_STATE_READY && 	HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_10)== GPIO_PIN_SET){
+							MCP4922SetOutput(DACConfig, dataOut);
 
+						}if(k>=1000){
+							k=(1000*Vlow)/Vhigh;
+							dataOut=adcconvert(Vlow);
+							MCP4922SetOutput(DACConfig, dataOut);
+						}
+					}
+
+
+				}else if(slope==1){
+					if (micros() - timestamp >= (T/1000)*1000000){
+						timestamp = micros();
+						debug=debug-((float)(Vhigh-Vlow)/1000);
+						dataOut=adcconvert(debug);
+						if (hspi3.State == HAL_SPI_STATE_READY && 	HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_10)== GPIO_PIN_SET){
+							MCP4922SetOutput(DACConfig, dataOut);
+						}if(debug<=Vlow){
+							debug=Vhigh;
+							MCP4922SetOutput(DACConfig, Vhigh);
+						}
+					}
+
+
+				}
+
+
+			break;
+
+
+	  	}
 
 	  	switch(state){
 			case printmenumain:
@@ -169,10 +265,24 @@ int main(void)
 			break;
 			case waitwaveform:
 				if(RxDataBuffer[Posdatapre]=='0' && Posdatapre!=Posdata ){
+					statetypewave=1;
+					slope=0;
+					Freq=10;
+					Vhigh=33;
+					Vlow=0;
 					state=printsubmenusawtooth;
 				}else if(RxDataBuffer[Posdatapre]=='1'&& Posdatapre!=Posdata ){
+					statetypewave=2;
+					Freq=10;
+					Vhigh=33;
+					Vlow=0;
 					state=printsubmenusin;
 				}else if(RxDataBuffer[Posdatapre]=='2'&& Posdatapre!=Posdata ){
+					statetypewave=3;
+					Freq=10;
+					Dutycycle=50;
+					Vhigh=33;
+					Vlow=0;
 					state=printsubmenusquare;
 				}else if( Posdatapre!=Posdata){
 					pim("\r\n\r\nPlease Select Wave form!!!!!!!!!!\r\n\r\n ");
@@ -816,6 +926,12 @@ void pimstatus(int x){
 		sprintf(TxDataBuffer, "\r\nNow F is:[%.2f]\r\nNow Vhigh is:[%.2f]\r\nNow Vlow is:[%.2f]\r\nNow slope:%d\r\n", (float)Freq*0.1,(float)Vhigh*0.1,(float)Vlow*0.1,(int)slope);
 		pim (TxDataBuffer);
 	}
+}
+float adcconvert(uint8_t x){
+	if(x>=33){
+		return 4095;
+	}
+	return (float)((float)(x*0.1)/3.3)*(4096.00);
 }
 
 /* USER CODE END 4 */
