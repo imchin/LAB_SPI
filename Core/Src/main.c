@@ -928,10 +928,10 @@ void pimstatus(int x){
 	}
 }
 float adcconvert(uint8_t x){
-	if(x>=33){
-		return 4095;
-	}
-	return (float)((float)(x*0.1)/3.3)*(4096.00);
+//	if(x>=33){
+//		return 4095;
+//	}
+	return (float)((float)(x*0.1)/3.3)*(4095.00);
 }
 
 /* USER CODE END 4 */
